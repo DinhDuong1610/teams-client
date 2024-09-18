@@ -1,24 +1,33 @@
-import logo from './logo.svg';
-import './App.css';
+import classNames from "classnames/bind";
+import style from "./app.module.scss";
+import { Route, Routes, BrowserRouter } from "react-router-dom";
+
+import Activity from '../src/pages/activity/Activity.js';
+import Community from '../src/pages/community/Community.js';
+import Chat from '../src/pages/chat/Chat.js';
+import Login from '../src/pages/login/Login.js';
+import Calendar from '../src/pages/calendar/Calendar.js';
+import Sidebar from '../src/components/sidebar/Sidebar.js';
+
+const cx = classNames.bind(style);
+
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <BrowserRouter>
+      <div className="App">
+        <div className={cx('sidebar')}><Sidebar /></div>
+        <div className={cx('content')}>
+            <Routes>
+              <Route path="/activity" element={<Activity />} />
+              <Route path="/" element={<Community />} />
+              <Route path="/chat" element={<Chat />} />
+              <Route path="/calendar" element={<Calendar />} />
+              <Route path="/login" element={<Login />} />
+            </Routes>
+        </div>
+      </div>
+    </BrowserRouter>
   );
 }
 

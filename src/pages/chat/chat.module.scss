@@ -1,0 +1,15 @@
+.chat {
+    display: flex;
+    height: 100%;
+}
+
+.listUser {
+    width: 25%;
+    height: 100%;
+    border: 1px solid #dddddd35;
+}
+
+.chatBox {
+    flex: 1;
+    height: 100%;
+}

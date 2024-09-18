@@ -1,0 +1,27 @@
+.listUser {
+
+    ul {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    ul li {
+        list-style-type: none;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 5px;
+        cursor: pointer;
+
+        &:hover {
+            background-color: #dddddd35;
+        }
+
+        img {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+        }
+    }
+}
