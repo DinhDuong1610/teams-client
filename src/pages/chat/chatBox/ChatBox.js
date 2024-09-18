@@ -106,64 +106,74 @@ function ChatBox({ user }) {
 
   useEffect(() => {
     const peer = new Peer(currentUserId, {
-      host: '172.20.10.3',  
-      port: 9000,              
-      path: '/',               
-      secure: false            
+      host: '172.20.10.4',
+      port: 9000,
+      path: '/',
+      secure: false
     });
-  
+    
     peer.on('open', (id) => {
       setPeerId(id);
     });
-  
+    
     peer.on('call', (call) => {
-      // Sử dụng navigator.mediaDevices.getUserMedia
       navigator.mediaDevices.getUserMedia({ video: true, audio: true })
         .then((mediaStream) => {
+          // Phát video của người dùng hiện tại
           if (currentUserVideoRef.current) {
             currentUserVideoRef.current.srcObject = mediaStream;
             currentUserVideoRef.current.play();
           }
+          // Trả lời cuộc gọi bằng mediaStream
           call.answer(mediaStream);
+          
           call.on('stream', function(remoteStream) {
+            // Phát video từ peer gọi đến
             if (remoteVideoRef.current) {
               remoteVideoRef.current.srcObject = remoteStream;
               remoteVideoRef.current.play();
             }
           });
         })
-        .catch((err) => {
-          console.error("Error accessing media devices.", err);
+        .catch((error) => {
+          console.error('Error accessing media devices:', error);
         });
     });
-  
+    
+    // Lưu trữ peer instance trong ref để truy cập sau này
     peerInstance.current = peer;
-  }, []);
-  
-  const call = (remotePeerId) => {
-    // Sử dụng navigator.mediaDevices.getUserMedia
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      .then((mediaStream) => {
-        if (currentUserVideoRef.current) {
-          currentUserVideoRef.current.srcObject = mediaStream;
-          currentUserVideoRef.current.play();
-        }
-  
-        const call = peerInstance.current.call(remotePeerId, mediaStream);
-  
-        call.on('stream', (remoteStream) => {
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = remoteStream;
-            remoteVideoRef.current.play();
-          }        
-        });
-  
-        setCalling(true);
-      })
-      .catch((err) => {
-        console.error("Error accessing media devices.", err);
+    
+    return () => {
+      // Đóng kết nối peer khi component unmount
+      peer.destroy();
+    };
+}, []);
+
+const call = (remotePeerId) => {
+  navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    .then((mediaStream) => {
+      // Phát video của người dùng hiện tại
+      if (currentUserVideoRef.current) {
+        currentUserVideoRef.current.srcObject = mediaStream;
+        currentUserVideoRef.current.play();
+      }
+
+      const call = peerInstance.current.call(remotePeerId, mediaStream);
+
+      call.on('stream', (remoteStream) => {
+        // Phát video từ peer khác
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStream;
+          remoteVideoRef.current.play();
+        }        
       });
-  }
+
+      setCalling(true);
+    })
+    .catch((err) => {
+      console.error("Error accessing media devices.", err);
+    });
+}
   
 
 
