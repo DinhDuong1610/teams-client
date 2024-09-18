@@ -1,9 +1,19 @@
+// import { useState, useEffect, useRef } from 'react';
+
+// const useWebSocket = (url, subscribeMessage) => {
+//   const [messages, setMessages] = useState([]);
+//   const [isConnected, setIsConnected] = useState(false);
+//   const wsRef = useRef(null);
+
 import { useState, useEffect, useRef } from 'react';
 
-const useWebSocket = (url, subscribeMessage) => {
+const useWebSocket = (path, subscribeMessage) => {
   const [messages, setMessages] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef(null);
+
+  // Construct the full WebSocket URL using localhost and the provided path
+  const url = `ws://172.20.10.4:8081`;
 
   useEffect(() => {
     wsRef.current = new WebSocket(url);

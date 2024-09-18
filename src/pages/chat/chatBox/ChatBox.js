@@ -15,6 +15,13 @@ function ChatBox({ user }) {
   const [image, setImage] = useState(null);
   const [messages, setMessages] = useState([]);
 
+  const [calling, setCalling] = useState(false);
+  const [peerId, setPeerId] = useState('');
+  const [remotePeerIdValue, setRemotePeerIdValue] = useState('');
+  const remoteVideoRef = useRef(null);
+  const currentUserVideoRef = useRef(null);
+  const peerInstance = useRef(null);
+
   const currentUserId = auth.currentUser?.uid;
 
   const subscribeMessage = {
@@ -97,6 +104,63 @@ function ChatBox({ user }) {
   };
 
 
+  useEffect(() => {
+    const peer = new Peer(currentUserId, {
+      host: 'localhost',  // Địa chỉ IP hoặc domain của server PeerJS
+      port: 9000,              // Port của server PeerJS
+      path: '/',               // Đường dẫn tùy chọn
+      secure: false            // Chỉ bật nếu server của bạn sử dụng HTTPS
+    });
+  
+    peer.on('open', (id) => {
+      setPeerId(id)
+    });
+  
+    peer.on('call', (call) => {
+      var getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+  
+      getUserMedia({ video: true, audio: true }, (mediaStream) => {
+        if (currentUserVideoRef.current) {
+          currentUserVideoRef.current.srcObject = mediaStream;
+          currentUserVideoRef.current.play();
+        }
+        call.answer(mediaStream);
+        call.on('stream', function(remoteStream) {
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = remoteStream;
+            remoteVideoRef.current.play();
+          }
+        });
+      });
+    });
+  
+    peerInstance.current = peer;
+  }, []);
+  
+  const call = (remotePeerId) => {
+    var getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+  
+    getUserMedia({ video: true, audio: true }, (mediaStream) => {
+      if (currentUserVideoRef.current) {
+        currentUserVideoRef.current.srcObject = mediaStream;
+        currentUserVideoRef.current.play();
+      }
+  
+      const call = peerInstance.current.call(remotePeerId, mediaStream);
+  
+      call.on('stream', (remoteStream) => {
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStream;
+          remoteVideoRef.current.play();
+        }        
+      });
+  
+      setCalling(true);
+    });
+  }
+  
+
+
   return (
     <div className={cx('chatBox')}>
       <div className={cx('title')}>
@@ -105,7 +169,7 @@ function ChatBox({ user }) {
           <div className={cx('username')}>{user?.username}</div>
         </div>
         <div className={cx('function')}>
-          <button>Call</button>
+          <button onClick={() => call(remotePeerIdValue)}>Call</button>
           <button>...</button>
         </div>
       </div>
@@ -130,6 +194,17 @@ function ChatBox({ user }) {
         />
         <button onClick={handleSendMessage} disabled={!isConnected}>Send</button>
       </div>
+
+      {
+        calling && <div className={cx('calling')}>
+          <div>
+            <video ref={currentUserVideoRef} />
+          </div>
+          <div>
+            <video ref={remoteVideoRef} />
+          </div>
+        </div>
+      }
     </div>
   );
 }
