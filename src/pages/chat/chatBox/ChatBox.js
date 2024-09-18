@@ -106,37 +106,47 @@ function ChatBox({ user }) {
 
   useEffect(() => {
     const peer = new Peer(currentUserId, {
-      host: 'localhost',  // Địa chỉ IP hoặc domain của server PeerJS
-      port: 9000,              // Port của server PeerJS
-      path: '/',               // Đường dẫn tùy chọn
-      secure: false            // Chỉ bật nếu server của bạn sử dụng HTTPS
+      host: '172.20.10.3',
+      port: 9000,
+      path: '/',
+      secure: false
     });
-  
+    
     peer.on('open', (id) => {
-      setPeerId(id)
+      setPeerId(id);
     });
-  
+    
     peer.on('call', (call) => {
-      var getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
-  
-      getUserMedia({ video: true, audio: true }, (mediaStream) => {
-        if (currentUserVideoRef.current) {
-          currentUserVideoRef.current.srcObject = mediaStream;
-          currentUserVideoRef.current.play();
-        }
-        call.answer(mediaStream);
-        call.on('stream', function(remoteStream) {
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = remoteStream;
-            remoteVideoRef.current.play();
+      var getUserMedia = navigator.mediaDevices.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+      
+      getUserMedia({ video: true, audio: true })
+        .then((mediaStream) => {
+          if (currentUserVideoRef.current) {
+            currentUserVideoRef.current.srcObject = mediaStream;
+            currentUserVideoRef.current.play();
           }
+          call.answer(mediaStream);
+          call.on('stream', function(remoteStream) {
+            if (remoteVideoRef.current) {
+              remoteVideoRef.current.srcObject = remoteStream;
+              remoteVideoRef.current.play();
+            }
+          });
+        })
+        .catch((error) => {
+          console.error('Error accessing media devices:', error);
         });
-      });
     });
-  
+    
+    // Lưu trữ peer instance trong ref để truy cập sau này
     peerInstance.current = peer;
-  }, []);
-  
+    
+    return () => {
+      // Đóng kết nối peer khi component unmount
+      peer.destroy();
+    };
+}, []);
+
   const call = (remotePeerId) => {
     var getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
   
