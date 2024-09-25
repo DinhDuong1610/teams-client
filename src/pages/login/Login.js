@@ -87,7 +87,7 @@ const Login = () => {
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      navigate("/");
+      navigate("/community");
     } catch (err) {
       console.log(err);
       toast.error(err.message);

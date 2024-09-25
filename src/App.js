@@ -20,10 +20,10 @@ function App() {
         <div className={cx('content')}>
             <Routes>
               <Route path="/activity" element={<Activity />} />
-              <Route path="/" element={<Community />} />
+              <Route path="/community" element={<Community />} />
               <Route path="/chat" element={<Chat />} />
               <Route path="/calendar" element={<Calendar />} />
-              <Route path="/login" element={<Login />} />
+              <Route path="/" element={<Login />} />
             </Routes>
         </div>
       </div>

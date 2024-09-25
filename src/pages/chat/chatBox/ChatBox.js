@@ -1,35 +1,73 @@
 import React, { useState, useEffect, useRef } from "react";
-import classNames from "classnames/bind";
-import style from "./chatBox.module.scss";
-import { auth } from "../../../database/firebase";
-import upload from "../../../database/upload";
-import useWebSocket from "../../../hooks/useWebSocket";
-import { addDoc, collection, serverTimestamp, query, orderBy, onSnapshot } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  serverTimestamp,
+  query,
+  orderBy,
+  onSnapshot,
+} from "firebase/firestore";
 import { db } from "../../../database/firebase";
-import Peer from "peerjs";
-
-const cx = classNames.bind(style);
+import upload from "../../../database/upload";
+import useSocketIO from "../../../hooks/useSocketIO";
+import { auth } from "../../../database/firebase";
+import style from "./chatBox.module.scss";
 
 function ChatBox({ user }) {
   const [newMessage, setNewMessage] = useState("");
   const [image, setImage] = useState(null);
   const [messages, setMessages] = useState([]);
-
-  const [calling, setCalling] = useState(false);
-  const [peerId, setPeerId] = useState('');
-  const [remotePeerIdValue, setRemotePeerIdValue] = useState('');
-  const remoteVideoRef = useRef(null);
-  const currentUserVideoRef = useRef(null);
-  const peerInstance = useRef(null);
-
+  const [myStream, setMyStream] = useState(null);
+  const [remoteStream, setRemoteStream] = useState(null);
+  const [incomingCall, setIncomingCall] = useState(null);
+  const [room, setRoom] = useState(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isCameraOn, setIsCameraOn] = useState(false);
   const currentUserId = auth.currentUser?.uid;
+  const videoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const peerConnection = useRef(null);
+  const { socket } = useSocketIO("http://localhost:9000", currentUserId);
 
-  const subscribeMessage = {
-    type: 'subscribe',
-    user_from_chat: currentUserId,
-  };
+  useEffect(() => {
+    if (myStream && videoRef.current) {
+      videoRef.current.srcObject = myStream;
+    }
+  }, [myStream]);
 
-  const { messages: wsMessages, sendMessage, isConnected } = useWebSocket("ws://localhost:8081", subscribeMessage);
+  useEffect(() => {
+    if (socket) {
+      const handleVideoCallRequest = (data) => {
+        console.log("Incoming call:", data);
+        setIncomingCall(data);
+        setRoom(data.room);
+      };
+
+      const handleVideoCallResponse = async (data) => {
+        if (data.signal) {
+          await peerConnection.current.setRemoteDescription(
+            new RTCSessionDescription(data.signal)
+          );
+        }
+      };
+
+      const handleIceCandidate = async (data) => {
+        await peerConnection.current.addIceCandidate(
+          new RTCIceCandidate(data.candidate)
+        );
+      };
+
+      socket.on("videoCallRequest", handleVideoCallRequest);
+      socket.on("videoCallResponse", handleVideoCallResponse);
+      socket.on("iceCandidate", handleIceCandidate);
+
+      return () => {
+        socket.off("videoCallRequest", handleVideoCallRequest);
+        socket.off("videoCallResponse", handleVideoCallResponse);
+        socket.off("iceCandidate", handleIceCandidate);
+      };
+    }
+  }, [socket]);
 
   useEffect(() => {
     if (user && currentUserId) {
@@ -39,32 +77,20 @@ function ChatBox({ user }) {
       );
 
       const unsubscribe = onSnapshot(messagesQuery, (querySnapshot) => {
-        if (querySnapshot.empty) {
-          console.log("No messages found.");
-          setMessages([]);
-        } else {
-          const allMessages = querySnapshot.docs.map(doc => doc.data());
-          const filteredMessages = allMessages.filter(msg => 
-            (msg.user_from === currentUserId && msg.user_to === user.id) ||
-            (msg.user_from === user.id && msg.user_to === currentUserId)
+        const filteredMessages = querySnapshot.docs
+          .map((doc) => doc.data())
+          .filter(
+            (msg) =>
+              (msg.user_from === currentUserId && msg.user_to === user.id) ||
+              (msg.user_from === user.id && msg.user_to === currentUserId)
           );
-          console.log("Loaded messages:", filteredMessages);
-          setMessages(filteredMessages);
-        }
-      }, (error) => {
-        console.error("Error fetching messages: ", error);
+
+        setMessages(filteredMessages);
       });
 
       return () => unsubscribe();
     }
   }, [user, currentUserId]);
-
-  useEffect(() => {
-    if (wsMessages.length > 0) {
-      const lastMessage = wsMessages[wsMessages.length - 1];
-      setMessages(prevMessages => [...prevMessages, lastMessage]);
-    }
-  }, [wsMessages]);
 
   const handleSendMessage = async () => {
     if (newMessage.trim() || image) {
@@ -84,11 +110,6 @@ function ChatBox({ user }) {
         };
 
         await addDoc(collection(db, "chat_user"), message);
-        sendMessage({
-          type: 'sendMessage',
-          ...message,
-        });
-
         setNewMessage("");
         setImage(null);
       } catch (error) {
@@ -97,130 +118,217 @@ function ChatBox({ user }) {
     }
   };
 
-  const handleImageChange = (e) => {
-    if (e.target.files.length > 0) {
-      setImage(e.target.files[0]);
+  const handleVideoCall = async (userId) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+
+      setMyStream(stream);
+      const roomId = `${currentUserId}-${userId}`;
+      setRoom(roomId);
+
+      peerConnection.current = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+
+      // Thêm track âm thanh và video
+      stream.getTracks().forEach((track) => {
+        peerConnection.current.addTrack(track, stream);
+      });
+
+      peerConnection.current.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit("iceCandidate", {
+            room: roomId,
+            candidate: event.candidate,
+          });
+        }
+      };
+
+      const offer = await peerConnection.current.createOffer();
+      await peerConnection.current.setLocalDescription(offer);
+      socket.emit("videoCallRequest", {
+        from: currentUserId,
+        to: userId,
+        signal: offer,
+        room: roomId,
+      });
+    } catch (error) {
+      console.error("Error starting video call: ", error);
     }
   };
 
+  const acceptCall = async () => {
+    if (!incomingCall) return;
 
-  useEffect(() => {
-    const peer = new Peer(currentUserId, {
-      host: '172.20.10.4',
-      port: 9000,
-      path: '/',
-      secure: false
+    peerConnection.current = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
-    
-    peer.on('open', (id) => {
-      setPeerId(id);
+
+    myStream.getTracks().forEach((track) => {
+      peerConnection.current.addTrack(track, myStream);
     });
-    
-    peer.on('call', (call) => {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        .then((mediaStream) => {
-          // Phát video của người dùng hiện tại
-          if (currentUserVideoRef.current) {
-            currentUserVideoRef.current.srcObject = mediaStream;
-            currentUserVideoRef.current.play();
-          }
-          // Trả lời cuộc gọi bằng mediaStream
-          call.answer(mediaStream);
-          
-          call.on('stream', function(remoteStream) {
-            // Phát video từ peer gọi đến
-            if (remoteVideoRef.current) {
-              remoteVideoRef.current.srcObject = remoteStream;
-              remoteVideoRef.current.play();
-            }
-          });
-        })
-        .catch((error) => {
-          console.error('Error accessing media devices:', error);
+
+    peerConnection.current.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("iceCandidate", {
+          room: incomingCall.room,
+          candidate: event.candidate,
         });
-    });
-    
-    // Lưu trữ peer instance trong ref để truy cập sau này
-    peerInstance.current = peer;
-    
-    return () => {
-      // Đóng kết nối peer khi component unmount
-      peer.destroy();
-    };
-}, []);
-
-const call = (remotePeerId) => {
-  navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-    .then((mediaStream) => {
-      // Phát video của người dùng hiện tại
-      if (currentUserVideoRef.current) {
-        currentUserVideoRef.current.srcObject = mediaStream;
-        currentUserVideoRef.current.play();
       }
+    };
 
-      const call = peerInstance.current.call(remotePeerId, mediaStream);
+    peerConnection.current.ontrack = (event) => {
+      setRemoteStream(event.streams[0]);
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = event.streams[0];
+      }
+    };
 
-      call.on('stream', (remoteStream) => {
-        // Phát video từ peer khác
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteStream;
-          remoteVideoRef.current.play();
-        }        
-      });
-
-      setCalling(true);
-    })
-    .catch((err) => {
-      console.error("Error accessing media devices.", err);
+    await peerConnection.current.setRemoteDescription(
+      new RTCSessionDescription(incomingCall.signal)
+    );
+    const answer = await peerConnection.current.createAnswer();
+    await peerConnection.current.setLocalDescription(answer);
+    socket.emit("videoCallResponse", {
+      from: currentUserId,
+      to: incomingCall.from,
+      signal: answer,
+      room: incomingCall.room,
     });
-}
-  
+    setIncomingCall(null);
+  };
 
+  const declineCall = () => {
+    setIncomingCall(null);
+  };
+
+  const toggleMute = () => {
+    if (myStream) {
+      myStream.getAudioTracks().forEach((track) => {
+        track.enabled = !track.enabled;
+      });
+      setIsMuted(!isMuted);
+    }
+  };
+
+  const toggleCamera = async () => {
+    if (myStream) {
+      if (isCameraOn) {
+        const videoTrack = myStream.getVideoTracks()[0];
+        if (videoTrack) {
+          videoTrack.enabled = false;
+        }
+        setIsCameraOn(false);
+      } else {
+        try {
+          const videoStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+          });
+          const videoTrack = videoStream.getVideoTracks()[0];
+          setIsCameraOn(true);
+          peerConnection.current.addTrack(videoTrack, videoStream);
+          myStream.addTrack(videoTrack); // Cập nhật stream
+        } catch (error) {
+          console.error("Error turning on camera: ", error);
+        }
+      }
+    }
+  };
+
+  const endCall = () => {
+    if (peerConnection.current) {
+      peerConnection.current.close();
+      peerConnection.current = null;
+    }
+    setMyStream(null);
+    setRemoteStream(null);
+    setIncomingCall(null);
+    setRoom(null);
+  };
 
   return (
-    <div className={cx('chatBox')}>
-      <div className={cx('title')}>
-        <div className={cx('user')}>
-          <img src={user?.avatar || "./avatar.png"} alt={user?.username} />
-          <div className={cx('username')}>{user?.username}</div>
-        </div>
-        <div className={cx('function')}>
-          <button onClick={() => call(remotePeerIdValue)}>Call</button>
-          <button>...</button>
+    <div className={style.chatBox}>
+      <div className={style.title}>
+        <div className={style.user}>
+          <img
+            src={user?.avatar || "./avatar.png"}
+            alt={user?.username}
+            style={{ width: "50px", height: "50px" }}
+          />
+          <div className={style.username}>{user?.username}</div>
         </div>
       </div>
-      <div className={cx('body')}>
+      <div className={style.body}>
         {messages.map((msg, index) => (
-          <div key={index} className={cx('message', { sent: msg.user_from === currentUserId })}>
-            <div className={cx('messageContent')}>{msg.text}</div>
-            {msg.image && <img src={msg.image} alt="message attachment" className={cx('messageImage')} />}
+          <div
+            key={index}
+            className={`${style.message} ${
+              msg.user_from === currentUserId ? style.sent : ""
+            }`}
+          >
+            <div className={style.messageContent}>{msg.text}</div>
+            {msg.image && (
+              <img
+                src={msg.image}
+                alt="message attachment"
+                style={{ width: "300px", height: "200px", objectFit: "cover", display: "block" }}
+              />
+            )}
           </div>
         ))}
       </div>
-      <div className={cx('bottom')}>
+      <div className={style.footer}>
         <input
           type="text"
-          placeholder="Type a message"
-          value={newMessage}
+          value={newMessage || ""}
           onChange={(e) => setNewMessage(e.target.value)}
+          placeholder="Enter a message..."
         />
         <input
           type="file"
-          onChange={handleImageChange}
+          onChange={(e) => {
+            if (e.target.files.length > 0) setImage(e.target.files[0]);
+          }}
+          style={{ width: "200px" }}
         />
-        <button onClick={handleSendMessage} disabled={!isConnected}>Send</button>
+        <button onClick={handleSendMessage}>Send</button>
       </div>
-
-      {
-        calling && <div className={cx('calling')}>
+      <div className={style.videoContainer}>
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          style={{ width: "300px", height: "200px" }}
+        />
+        {isCameraOn && remoteStream ? (
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            style={{ width: "300px", height: "200px" }}
+          />
+        ) : (
+          <div className={style.callingMessage}>Đang gọi...</div>
+        )}
+      </div>
+      <div className={style.function}>
+        <button onClick={() => handleVideoCall(user.id)}>Call</button>
+        {incomingCall && (
           <div>
-            <video ref={currentUserVideoRef} />
+            <button onClick={acceptCall}>Accept</button>
+            <button onClick={declineCall}>Decline</button>
           </div>
-          <div>
-            <video ref={remoteVideoRef} />
-          </div>
-        </div>
-      }
+        )}
+        <button onClick={toggleMute}>{isMuted ? "Unmute" : "Mute"}</button>
+        <button onClick={toggleCamera}>
+          {isCameraOn ? "Turn off Camera" : "Turn on Camera"}
+        </button>
+        <button onClick={endCall}>End Call</button>
+      </div>
     </div>
   );
 }
